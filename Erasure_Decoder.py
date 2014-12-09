@@ -43,8 +43,9 @@ def bipartite_graph(N,M,d_v,d_c,d_max,H):
             edge_ind = np.divide(edges_slot[i*d_v:(i+1)*d_v],d_c)
             
             H[edge_ind,i] = 1
-            E_dict['c_'+str(edge_ind)+'_to_v_'+str(i)] = float('nan')
-            E_dict['v_'+str(i)+'_to_c_'+str(edge_ind)] = float('nan')
+            for jj in edge_ind:            
+                E_dict['c_'+str(jj)+'_to_v_'+str(i)] = float('nan')
+                E_dict['v_'+str(i)+'_to_c_'+str(jj)] = float('nan')
             D[edge_ind,i] = 1 + np.round(d_max*np.random.rand(d_v))        
     #..........................................................................
     
@@ -54,6 +55,8 @@ def bipartite_graph(N,M,d_v,d_c,d_max,H):
             for j in range(0,M):
                 if (H[j,i]):
                     D[j,i] = 1 + np.round(d_max*np.random.rand(1))
+                    E_dict['c_'+str(j)+'_to_v_'+str(i)] = float('nan')
+                    E_dict['v_'+str(i)+'_to_c_'+str(j)] = float('nan')
     #..........................................................................
     
     return H,D,E_dict
@@ -65,9 +68,9 @@ def variable_to_check(v,c,m,E,H,D,t,queue_inds,event_queue):
         
     #.......................Shift Variable Messages............................
     M,N = H.shape    
-    ind = np.nonzero(H[v,:])
-    E['v_'+str(i)+'_to_c_'+str(c)] = m
-    ind = ind[0]
+    ind = np.nonzero(H[c,:])
+    E['v_'+str(v)+'_to_c_'+str(c)] = m
+    ind = list(ind[0])
     ind.remove(v)                  # Remove the variable node from the neighbors
     for j in ind:
         #~~~~~~~~~Update the Outgoing Messages to the Other Neighbors~~~~~~~~~~                
@@ -76,7 +79,7 @@ def variable_to_check(v,c,m,E,H,D,t,queue_inds,event_queue):
         messages = []
         nan_flag = 0
         for jj in temp_ind:
-            if isnan(E['v_'+str(jj)+'_to_c_'+str(c)]):
+            if np.isnan(E['v_'+str(jj)+'_to_c_'+str(c)]):
                 nan_flag = 1
                 break
             else:
@@ -85,7 +88,11 @@ def variable_to_check(v,c,m,E,H,D,t,queue_inds,event_queue):
         
         #~~~~~~~~~~~~~~~~~~~~~~~~~~~Add to Queue~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
         if not nan_flag:
-            s = np.mod(sum(messages),2)
+            
+            if -1 in messages:
+                s = -1
+            else:
+                s = np.mod(sum(messages),2)
             q_ind = find_queue_inds(queue_inds,t+D[c,j])                
             queue_inds.insert(q_ind,D[c,j])
             event_queue.insert(q_ind,[j,c,'v',s])                
@@ -96,31 +103,28 @@ def variable_to_check(v,c,m,E,H,D,t,queue_inds,event_queue):
 #------------------------------------------------------------------------------
 
 #------------------Check-to-Variable Message Transmission----------------------
-def check_to_variable(x0,y_matrix,H,D,theta,t):
-    #.........................Shift Check Messages.............................
-    M,N = H.shape
-    y = float('nan')*np.ones([1,M])
-    for j in range(0,N):
-        ind = np.nonzero(H[:,j])
-        for i in ind[0]:
-            d = D[i,j]
-            if (t+1-d)>=0:
-                y[0,i] = y_matrix[t+1-d,i]
-    #..........................................................................
+def check_to_variable(v,c,m,E,H,D,t,queue_inds,event_queue,var_states):
     
-    #.......................Create a Check Messages............................
-    v = np.ma.masked_array(y,mask= (y=='nan'))    
-    x = np.ma.dot(v,H)
-    x = x.data
-    one_ind = (x>theta*sum(H)).astype(int)
-    zero_ind = (x<(1-theta)*sum(H)).astype(int)    
-    x = x0-one_ind - np.multiply(x0,zero_ind)# + np.multiply(1-one_ind,1-zero_ind)
+    #.......................Shift Variable Messages............................
+    M,N = H.shape    
+    ind = np.nonzero(H[:,v])
+    E['c_'+str(c)+'_to_v_'+str(v)] = m
     
-    x = abs(x)
-    update_flag = one_ind + zero_ind
-    #..........................................................................
+    if (m != -1) and (m != float('nan')):
+        var_states[0,v] = m
+        
+        ind = list(ind[0])
+        ind.remove(c)                  # Remove the variable node from the neighbors
+        for j in ind:
+        
+            #~~~~~~~~~~~~~~~~~~~~~~~~~~~Add to Queue~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~                        
+            q_ind = find_queue_inds(queue_inds,t+D[j,v])                
+            queue_inds.insert(q_ind,D[j,v])
+            event_queue.insert(q_ind,[v,j,'c',m])                
+            #~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+        
     
-    return x
+    return E,queue_inds,event_queue,var_states
     
 #------------------------------------------------------------------------------
 
@@ -169,9 +173,9 @@ def find_queue_inds(queue_inds,t):
     else:
         m = len(queue_inds)/2
         if (t <= queue_inds[m]):
-            ind = find_queue_inds(queue_inds[0:m+1],t)
+            ind = find_queue_inds(queue_inds[0:m],t)
         else:
-            ind = m+1 + find_queue_inds(queue_inds[m+1:],t)
+            ind = m+1 + find_queue_inds(queue_inds[m:],t)
     #..........................................................................    
 
     return ind
@@ -181,22 +185,24 @@ def find_queue_inds(queue_inds,t):
 #================================INITIALIZATIONS===============================
 N = 128                                             # Codeword length
 K = 64                                              # Messageword length
-e0_range = range(0,int(N/8))                        # Number of erased bits
+e0_range = range(0,int(N/2),2)                        # Number of erased bits
 d_v = 4                                             # Degree of variable nodes
 d_c = 8                                             # Degree of check nodes
 d_max = 10                                          # Maximum delay of the edges in the parity check matrix. A value of 0 represents standard belief propagation
 no_avg_itrs = 40                                    # Number of times a random noisy vector is generated for decoding
-max_decoding_itr = 80                               # Maximum number of iterations that the decodng algorithm is run after which a failure is declared
+max_decoding_itr = 800                               # Maximum number of iterations that the decodng algorithm is run after which a failure is declared
 final_BER_w_Delay = np.zeros([1,len(e0_range)])     # The average bit error rate at the end of decoding for the delayed decoding
 final_BER_wo_Delay = np.zeros([1,len(e0_range)])    # The average bit error rate at the end of decoding for the delay-less decoding
 var_messages = float('nan') * np.ones([max_decoding_itr,N])       # The time-stamped messages sent by variable nodes
 check_messages = float('nan') * np.ones([max_decoding_itr,N-K])   # The time-stamped messages sent by check nodes
-
+decoding_itr_wo_Delay = np.zeros([1,len(e0_range)])     # The average number of decoding iterations for the delay-less decoding
+decoding_itr_w_Delay = np.zeros([1,len(e0_range)])      # The average number of decoding iterations for the delayed decoding
 #==============================================================================
 
 #==========================CREATE PARIT CHECK GRAPH============================
-H,D_0,E = bipartite_graph(N,N-K,d_v,d_c,0,np.zeros([2,2]))
-H,D,[] = bipartite_graph(N,N-K,d_v,d_c,d_max,H)
+H,D_0,E0 = bipartite_graph(N,N-K,d_v,d_c,0,np.zeros([2,2]))
+D_0 = D_0 * round(sum(sum(D))/float(sum(sum(D>0))))
+H,D,E = bipartite_graph(N,N-K,d_v,d_c,d_max,H)
 #==============================================================================
 
 
@@ -211,27 +217,28 @@ for e0 in e0_range:
         ind_e = range(0,N)
         random.shuffle(ind_e)
         x_init = np.zeros([1,N])            # The all-zero codeword is assumed
-        x_init[0,ind_e[0:e0]] = 1       # The noisy codeword
+        x_init[0,ind_e[0:e0]] = -1         # The noisy codeword
         #--------------------------------------------------------------------------
     
         #----------------Fill Event Queue with Initial Variables-------------------
-        event_queue = {}
-        queue_inds = {}
-        var_states = x_init
+        event_queue = []
+        queue_inds = []
+        var_states = copy.deepcopy(x_init)
         for v in range(0,N):
             ind = np.nonzero(H[:,v])
             ind = ind[0]            
-            for c in ind[0]:
+            for c in ind:
                 q_ind = find_queue_inds(queue_inds,D[c,v])
                 if q_ind < 0:
                     queue_inds = [D[c,v]]
                 else:
                     queue_inds.insert(q_ind,D[c,v])
-                    event_queue.insert(q_ind,[v,c,'c',x_init[v]])
+                    event_queue.insert(q_ind,[v,c,'c',x_init[0,v]])                
         #--------------------------------------------------------------------------
         
         #-------------Process the Events in the Queue Until Finished---------------
-        while (len(event_queue)):
+        decoding_itr = 0
+        while (len(event_queue) and (decoding_itr < max_decoding_itr) ):            
             
             #.................Pop The Top Event From the Queue.....................
             event_list = event_queue[0]
@@ -241,75 +248,99 @@ for e0 in e0_range:
             #......................................................................
 
             #.........................Process the Event............................
-            if (event_list[2] == 'c'):
-                v = event_list[0]
-                c = event_list[1]
-                m = event_list[3]
-                E = variable_to_check(v,c,m,E)
+            v = event_list[0]
+            c = event_list[1]
+            m = event_list[3]
+            if (event_list[2] == 'c'):                
+                E,queue_inds,event_queue = variable_to_check(v,c,m,E,H,D,t,queue_inds,event_queue)
             elif (event_list[2] == 'v'):
-                
+                E,queue_inds,event_queue,var_states = check_to_variable(v,c,m,E,H,D,t,queue_inds,event_queue,var_states)
             else:
-                print 'Invalid event type!'
-                return            
+                print 'Invalid event type!'                
             #......................................................................
             
+            #......................Check Stopping Condition........................
+            if (-1 not in var_states):
+                print 'Asyncronous decoding finished successfully in %d iterations' %decoding_itr
+                break
+            else:
+                decoding_itr = decoding_itr + 1
+            #......................................................................
     
         #--------------------------------------------------------------------------
 
+        #------------------------------Calculate BER-------------------------------
+        final_BER_w_Delay[0,itr_error] = final_BER_w_Delay[0,itr_error] + sum(var_states[0,:] == -1)
+        decoding_itr_w_Delay[0,itr_error] = decoding_itr_w_Delay[0,itr_error] + decoding_itr
+        #--------------------------------------------------------------------------
 
-        #------------------Apply Iterative Decoding With Delay---------------------
-        var_messages.fill(float('nan'))
-        check_messages.fill(float('nan'))
-        var_messages[0,:] = x_init
-        for decod_itr in range(1,max_decoding_itr):
-            check_messages[decod_itr,:] = variable_to_check(var_messages,H,D,decod_itr)
-            #if sum(check_messages[decod_itr,:]):
+        #----------------Fill Event Queue with Initial Variables-------------------
+        event_queue = []
+        queue_inds = []
+        var_states = copy.deepcopy(x_init)
+        E = E0
         
-            x0 = var_messages[decod_itr-1,:]
-            var_messages[decod_itr,:] = check_to_variable(x0,check_messages,H,D,0.8,decod_itr)
+        for v in range(0,N):
+            ind = np.nonzero(H[:,v])
+            ind = ind[0]            
+            for c in ind:
+                q_ind = find_queue_inds(queue_inds,D_0[c,v])
+                if q_ind < 0:
+                    queue_inds = [D[c,v]]
+                else:
+                    queue_inds.insert(q_ind,D_0[c,v])
+                    event_queue.insert(q_ind,[v,c,'c',x_init[0,v]])        
+        #--------------------------------------------------------------------------
         
-            #if (sum(sum(abs(check_messages[max(0,decod_itr-2*d_max):decod_itr+1,:]))) < 1e-8):
-            if (sum(check_messages[decod_itr,:]) < 1e-8):
+        #-------------Process the Events in the Queue Until Finished---------------
+        decoding_itr = 0
+        while (len(event_queue) and (decoding_itr < max_decoding_itr) ):            
+            
+            #.................Pop The Top Event From the Queue.....................
+            event_list = event_queue[0]
+            t = queue_inds[0]
+            del queue_inds[0]
+            del event_queue[0]
+            #......................................................................
+
+            #.........................Process the Event............................
+            v = event_list[0]
+            c = event_list[1]
+            m = event_list[3]
+            if (event_list[2] == 'c'):                
+                E,queue_inds,event_queue = variable_to_check(v,c,m,E,H,D_0,t,queue_inds,event_queue)
+            elif (event_list[2] == 'v'):
+                E,queue_inds,event_queue,var_states = check_to_variable(v,c,m,E,H,D_0,t,queue_inds,event_queue,var_states)
+            else:
+                print 'Invalid event type!'                
+            #......................................................................
+            
+            #......................Check Stopping Condition........................
+            if (-1 not in var_states):
+                print 'Decoding finished successfully in %d iterations' %decoding_itr
                 break
-        #--------------------------------------------------------------------------
+            else:
+                decoding_itr = decoding_itr + 1
+            #......................................................................
     
+        #--------------------------------------------------------------------------
+
         #------------------------------Calculate BER-------------------------------
-        #v = find_var_message(decod_itr,var_messages,D)
-        #final_BER_w_Delay[0,itr_error] = final_BER_w_Delay[0,itr_error] + sum(np.sign(v[0]))
-        if (sum(check_messages[decod_itr,:])):
-            final_BER_w_Delay[0,itr_error] = final_BER_w_Delay[0,itr_error] + N
+        final_BER_wo_Delay[0,itr_error] = final_BER_wo_Delay[0,itr_error] + sum(var_states[0,:] == -1)
+        decoding_itr_wo_Delay[0,itr_error] = decoding_itr_wo_Delay[0,itr_error] + decoding_itr
         #--------------------------------------------------------------------------
         
-        
-        #-----------------Apply Iterative Decoding Without Delay-------------------
-        var_messages.fill(float('nan'))
-        check_messages.fill(float('nan'))
-        var_messages[0,:] = x_init
-        for decod_itr in range(1,max_decoding_itr):
-            check_messages[decod_itr,:] = variable_to_check(var_messages,H,D_0,decod_itr)
-            #if sum(check_messages[decod_itr,:]):
-        
-            x0 = var_messages[decod_itr-1,:]
-            var_messages[decod_itr,:] = check_to_variable(x0,check_messages,H,D_0,0.6,decod_itr)
-        
-            if (sum(check_messages[decod_itr,:]) < 1e-8):
-                break
-        #--------------------------------------------------------------------------
-    
-        #------------------------------Calculate BER-------------------------------
-        #v = find_var_message(decod_itr,var_messages,D_0)
-        #final_BER_wo_Delay[0,itr_error] = final_BER_wo_Delay[0,itr_error] + sum(np.sign(v[0]))
-        if (sum(check_messages[decod_itr,:])):
-            final_BER_wo_Delay[0,itr_error] = final_BER_wo_Delay[0,itr_error] + N
-        #--------------------------------------------------------------------------
-        
+                
     final_BER_w_Delay[0,itr_error] = final_BER_w_Delay[0,itr_error]/float(N*no_avg_itrs)
     final_BER_wo_Delay[0,itr_error] = final_BER_wo_Delay[0,itr_error]/float(N*no_avg_itrs)
+    decoding_itr_w_Delay[0,itr_error] = decoding_itr_w_Delay[0,itr_error]/float(no_avg_itrs)
+    decoding_itr_wo_Delay[0,itr_error] = decoding_itr_wo_Delay[0,itr_error]/float(no_avg_itrs)
     
     #----------------------------Print Some Results----------------------------
     print_str = 'No. input errors: '+ str(e0) +', Input BER: '+ str(e0/float(N)) + ', Outpur BER: ' + str(final_BER_w_Delay[0,itr_error]), ', w/o delay: ' + str(final_BER_wo_Delay[0,itr_error])
     print print_str
-    
+    print_str = 'Avg. decoding itrs: with delay = ' + str(decoding_itr_w_Delay[0,itr_error]) + ', without delay = ' + str(decoding_itr_wo_Delay[0,itr_error])
+    print print_str
     #--------------------------------------------------------------------------
     itr_error = itr_error + 1
     
