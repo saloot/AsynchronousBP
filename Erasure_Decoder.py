@@ -10,6 +10,7 @@ import sys,getopt,os
 import matplotlib.pyplot as plt
 import pdb
 import random
+import copy
 #==============================================================================
 
 
@@ -28,7 +29,8 @@ def bipartite_graph(N,M,d_v,d_c,d_max,H):
             graph_flag = 0
         else:
             graph_flag = 1
-        D = np.zeros([M,N])        
+        D = np.zeros([M,N])
+        E_dict = {}
     #..........................................................................
     
     #....................Create a Random Bipartite Graph.......................
@@ -40,7 +42,9 @@ def bipartite_graph(N,M,d_v,d_c,d_max,H):
         for i in range(0,N):
             edge_ind = np.divide(edges_slot[i*d_v:(i+1)*d_v],d_c)
             
-            H[edge_ind,i] = 1        
+            H[edge_ind,i] = 1
+            E_dict['c_'+str(edge_ind)+'_to_v_'+str(i)] = float('nan')
+            E_dict['v_'+str(i)+'_to_c_'+str(edge_ind)] = float('nan')
             D[edge_ind,i] = 1 + np.round(d_max*np.random.rand(d_v))        
     #..........................................................................
     
@@ -52,43 +56,43 @@ def bipartite_graph(N,M,d_v,d_c,d_max,H):
                     D[j,i] = 1 + np.round(d_max*np.random.rand(1))
     #..........................................................................
     
-    return H,D
+    return H,D,E_dict
     
 #------------------------------------------------------------------------------
 
 #------------------Variable-to-Check Message Transmission----------------------
-def variable_to_check(x_matrix,H,D,t):
-    
-    
+def variable_to_check(v,c,m,E,H,D,t,queue_inds,event_queue):
+        
     #.......................Shift Variable Messages............................
-    M,N = H.shape
-    x = float('nan')*np.ones([1,N])
-    for i in range(0,M):
-        ind = np.nonzero(H[i,:])
-        for j in ind[0]:
-            d = D[i,j]
-            if (t-d)>=0:
-                x[0,j] = x_matrix[t-d,j]
-    #..........................................................................
+    M,N = H.shape    
+    ind = np.nonzero(H[v,:])
+    E['v_'+str(i)+'_to_c_'+str(c)] = m
+    ind = ind[0]
+    ind.remove(v)                  # Remove the variable node from the neighbors
+    for j in ind:
+        #~~~~~~~~~Update the Outgoing Messages to the Other Neighbors~~~~~~~~~~                
+        temp_ind = ind
+        temp_ind.remove(j)
+        messages = []
+        nan_flag = 0
+        for jj in temp_ind:
+            if isnan(E['v_'+str(jj)+'_to_c_'+str(c)]):
+                nan_flag = 1
+                break
+            else:
+                messages.append(E['v_'+str(jj)+'_to_c_'+str(c)])
+        #~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+        
+        #~~~~~~~~~~~~~~~~~~~~~~~~~~~Add to Queue~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+        if not nan_flag:
+            s = np.mod(sum(messages),2)
+            q_ind = find_queue_inds(queue_inds,t+D[c,j])                
+            queue_inds.insert(q_ind,D[c,j])
+            event_queue.insert(q_ind,[j,c,'v',s])                
+        #~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+        
     
-    #.......................Create a Check Messages............................
-    if sum(sum(np.isnan(x))):
-        v = np.ma.masked_array(x,mask= (x==float('nan')))
-        y = np.zeros([1,M])
-        for i in range(0,M):
-            ind = np.nonzero(H[i,:])
-            ind = ind[0]
-            h = H[i,ind]
-            u = v[0,ind]
-            y[0,i] = np.dot(h,u.T)
-    else:
-        y = np.dot(H,x.T)
-        y = y.T
-    
-    y = np.mod(y,2)
-    #..........................................................................
-    
-    return y   
+    return E,queue_inds,event_queue
 #------------------------------------------------------------------------------
 
 #------------------Check-to-Variable Message Transmission----------------------
@@ -150,6 +154,30 @@ def find_var_message(decod_itr,var_messages,D):
 
 #==============================================================================
 
+
+#=========================PUSH TO QUEUE FUNCTIONS==============================
+def find_queue_inds(queue_inds,t):
+    
+    if (len(queue_inds) == 0):
+        ind = -1    
+    elif (len(queue_inds) == 1):
+        if t > queue_inds[0]:
+            ind = 1            
+        else:
+            ind = 0                        
+    #................Recursiveley Find the Correct Positions...................
+    else:
+        m = len(queue_inds)/2
+        if (t <= queue_inds[m]):
+            ind = find_queue_inds(queue_inds[0:m+1],t)
+        else:
+            ind = m+1 + find_queue_inds(queue_inds[m+1:],t)
+    #..........................................................................    
+
+    return ind
+#==============================================================================
+
+
 #================================INITIALIZATIONS===============================
 N = 128                                             # Codeword length
 K = 64                                              # Messageword length
@@ -163,12 +191,14 @@ final_BER_w_Delay = np.zeros([1,len(e0_range)])     # The average bit error rate
 final_BER_wo_Delay = np.zeros([1,len(e0_range)])    # The average bit error rate at the end of decoding for the delay-less decoding
 var_messages = float('nan') * np.ones([max_decoding_itr,N])       # The time-stamped messages sent by variable nodes
 check_messages = float('nan') * np.ones([max_decoding_itr,N-K])   # The time-stamped messages sent by check nodes
+
 #==============================================================================
 
 #==========================CREATE PARIT CHECK GRAPH============================
-H,D_0 = bipartite_graph(N,N-K,d_v,d_c,0,np.zeros([2,2]))
-H,D = bipartite_graph(N,N-K,d_v,d_c,d_max,H)
+H,D_0,E = bipartite_graph(N,N-K,d_v,d_c,0,np.zeros([2,2]))
+H,D,[] = bipartite_graph(N,N-K,d_v,d_c,d_max,H)
 #==============================================================================
+
 
 
 #=========================PERFORM ERROR DECORDING==============================
@@ -184,6 +214,49 @@ for e0 in e0_range:
         x_init[0,ind_e[0:e0]] = 1       # The noisy codeword
         #--------------------------------------------------------------------------
     
+        #----------------Fill Event Queue with Initial Variables-------------------
+        event_queue = {}
+        queue_inds = {}
+        var_states = x_init
+        for v in range(0,N):
+            ind = np.nonzero(H[:,v])
+            ind = ind[0]            
+            for c in ind[0]:
+                q_ind = find_queue_inds(queue_inds,D[c,v])
+                if q_ind < 0:
+                    queue_inds = [D[c,v]]
+                else:
+                    queue_inds.insert(q_ind,D[c,v])
+                    event_queue.insert(q_ind,[v,c,'c',x_init[v]])
+        #--------------------------------------------------------------------------
+        
+        #-------------Process the Events in the Queue Until Finished---------------
+        while (len(event_queue)):
+            
+            #.................Pop The Top Event From the Queue.....................
+            event_list = event_queue[0]
+            t = queue_inds[0]
+            del queue_inds[0]
+            del event_queue[0]
+            #......................................................................
+
+            #.........................Process the Event............................
+            if (event_list[2] == 'c'):
+                v = event_list[0]
+                c = event_list[1]
+                m = event_list[3]
+                E = variable_to_check(v,c,m,E)
+            elif (event_list[2] == 'v'):
+                
+            else:
+                print 'Invalid event type!'
+                return            
+            #......................................................................
+            
+    
+        #--------------------------------------------------------------------------
+
+
         #------------------Apply Iterative Decoding With Delay---------------------
         var_messages.fill(float('nan'))
         check_messages.fill(float('nan'))
