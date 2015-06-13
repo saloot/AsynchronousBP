@@ -1,4 +1,5 @@
 
+
 #=======================IMPORT THE NECESSARY LIBRARIES=========================
 from time import time
 import numpy as np
@@ -12,10 +13,10 @@ from auxiliary_functions import *
 
 
 #================================INITIALIZATIONS===============================
-N = 128                                             # Codeword length
-K = 64                                              # Messageword lengt
+N = 32                                             # Codeword length
+K = 16                                              # Messageword lengt
 max_e = 20                                          # Maximum number of erasures to consider
-min_e = 16                                          # Minimum number of erasures to consider
+min_e = 4                                          # Minimum number of erasures to consider
 step_e = 8                                          # Erasure step
 
 d_v = 4                                             # Degree of variable nodes
@@ -33,7 +34,7 @@ if not os.path.isdir('./Results'):                  # Create a folder if not alr
 
 
 #==========================PARSE COMMAND LINE ARGUMENTS========================
-input_opts, args = getopt.getopt(sys.argv[1:],"hN:K:T:D:C:E:M:I:S:")
+input_opts, args = getopt.getopt(sys.argv[1:],"hN:K:T:D:C:E:M:I:S:X:")
 if (input_opts):
     for opt, arg in input_opts:
         if opt == '-N':
@@ -54,6 +55,8 @@ if (input_opts):
             min_e = int(arg)                    # Minimum number of erasures to consider
         elif opt == '-S':
             step_e = int(arg)                   # Erasure step
+        elif opt == '-X':
+            max_decoding_itr = int(arg)                   # Erasure step
         elif opt == '-h':
             print(help_message)
             sys.exit()
@@ -107,7 +110,7 @@ for ensemble_itr in range(0,ensemble_size):
             #=========================ASYNCHRONOUS DECODING===========================
 
             #------------------------Asynchronous Decoding-----------------------------
-            err,decoding_itr,decoding_time,deg_one_w_delay_vs_itr = asynchronous_decoder(H,D_0,D_orig,E,x_init,max_decoding_itr,N,K,track_deg_one_flag,0,d_max)
+            err,decoding_itr,decoding_time,deg_one_w_delay_vs_itr = asynchronous_decoder(H,D_0,D_orig,copy.deepcopy(E0),x_init,max_decoding_itr,N,K,track_deg_one_flag,0,d_max)
             #-------------------------------------------------------------------------
                         
             final_BER_w_Delay[0,itr_error] = final_BER_w_Delay[0,itr_error] + err
@@ -119,7 +122,7 @@ for ensemble_itr in range(0,ensemble_size):
             #=====================JITTERED ASYNCHRONOUS DECODING=======================
             
             #------------------------Asynchronous Decoding-----------------------------
-            err,decoding_itr,decoding_time,deg_one_wo_delay_vs_itr = asynchronous_decoder(H,D_0,D_orig,E,x_init,max_decoding_itr,N,K,track_deg_one_flag,1,d_max)
+            err,decoding_itr,decoding_time,deg_one_wo_delay_vs_itr = asynchronous_decoder(H,D_0,D_orig,copy.deepcopy(E0),x_init,max_decoding_itr,N,K,track_deg_one_flag,1,d_max)
             #-------------------------------------------------------------------------
 
             #------------------------------Calculate BER-------------------------------
@@ -134,8 +137,8 @@ for ensemble_itr in range(0,ensemble_size):
             
             #============================SYNCHRONOUS DECODING==========================
             
-            #------------------------Asynchronous Decoding-----------------------------
-            err,decoding_itr,decoding_time,deg_one_sync_vs_itr = synchronous_decoder(H,x_init,E,N,K,max_decoding_itr,track_deg_one_flag)
+            #------------------------Synchronous Decoding------------------------------
+            err,decoding_itr,decoding_time,deg_one_sync_vs_itr = synchronous_decoder(H,x_init,copy.deepcopy(E0),N,K,max_decoding_itr,track_deg_one_flag)
             #-------------------------------------------------------------------------
 
             #------------------------------Calculate BER-------------------------------
@@ -148,62 +151,62 @@ for ensemble_itr in range(0,ensemble_size):
             #==========================================================================
             
         #===============================SAVE THE RESULTS===============================
-        file_name = "./Results/BER_N_" + str(N) + "_K_" + str(K) + "_deg_" + str(d_v) + "_" + str(d_c) + "_D_" + str(d_max) + ".txt"
+        file_name = "./Results/BER_N_" + str(N) + "_K_" + str(K) + "_deg_" + str(d_v) + "_" + str(d_c) + "_D_" + str(d_max) + "_X_" + str(max_decoding_itr)+".txt"
         acc_file = open(file_name,'a')                        
         acc_file.write("%d \t %f \n" %(e0,final_BER_w_Delay[0,itr_error]/float(N*no_avg_itrs)))
         acc_file.close()
         
-        file_name = "./Results/BER_N_" + str(N) + "_K_" + str(K) + "_deg_" + str(d_v) + "_" + str(d_c) + "_D_" + str(0) + ".txt"
+        file_name = "./Results/BER_N_" + str(N) + "_K_" + str(K) + "_deg_" + str(d_v) + "_" + str(d_c) + "_D_" + str(0) + "_X_" + str(max_decoding_itr)+".txt"
         acc_file = open(file_name,'a')                        
         acc_file.write("%d \t %f \n" %(e0,final_BER_wo_Delay[0,itr_error]/float(N*no_avg_itrs)))
         acc_file.close()
         
-        file_name = "./Results/BER_Sync_N_" + str(N) + "_K_" + str(K) + "_deg_" + str(d_v) + "_" + str(d_c) + ".txt"
+        file_name = "./Results/BER_Sync_N_" + str(N) + "_K_" + str(K) + "_deg_" + str(d_v) + "_" + str(d_c) + "_X_" + str(max_decoding_itr)+".txt"
         acc_file = open(file_name,'a')                        
         acc_file.write("%d \t %f \n" %(e0,final_BER_synchronous[0,itr_error]/float(N*no_avg_itrs)))
         acc_file.close()
                 
-        file_name = "./Results/PER_N_" + str(N) + "_K_" + str(K) + "_deg_" + str(d_v) + "_" + str(d_c) + "_D_" + str(d_max) + ".txt"
+        file_name = "./Results/PER_N_" + str(N) + "_K_" + str(K) + "_deg_" + str(d_v) + "_" + str(d_c) + "_D_" + str(d_max) + "_X_" + str(max_decoding_itr)+".txt"
         acc_file = open(file_name,'a')                        
         acc_file.write("%d \t %f \n" %(e0,final_PER_w_Delay[0,itr_error]/float(no_avg_itrs)))
         acc_file.close()
         
-        file_name = "./Results/PER_N_" + str(N) + "_K_" + str(K) + "_deg_" + str(d_v) + "_" + str(d_c) + "_D_" + str(0) + ".txt"
+        file_name = "./Results/PER_N_" + str(N) + "_K_" + str(K) + "_deg_" + str(d_v) + "_" + str(d_c) + "_D_" + str(0) + "_X_" + str(max_decoding_itr)+".txt"
         acc_file = open(file_name,'a')                        
         acc_file.write("%d \t %f \n" %(e0,final_PER_wo_Delay[0,itr_error]/float(no_avg_itrs)))
         acc_file.close()
         
-        file_name = "./Results/PER_Sync_N_" + str(N) + "_K_" + str(K) + "_deg_" + str(d_v) + "_" + str(d_c) + ".txt"
+        file_name = "./Results/PER_Sync_N_" + str(N) + "_K_" + str(K) + "_deg_" + str(d_v) + "_" + str(d_c) + "_X_" + str(max_decoding_itr)+".txt"
         acc_file = open(file_name,'a')                        
         acc_file.write("%d \t %f \n" %(e0,final_PER_synchronous[0,itr_error]/float(no_avg_itrs)))
         acc_file.close()
                 
-        file_name = "./Results/ITR_N_" + str(N) + "_K_" + str(K) + "_deg_" + str(d_v) + "_" + str(d_c) + "_D_" + str(d_max) + ".txt"
+        file_name = "./Results/ITR_N_" + str(N) + "_K_" + str(K) + "_deg_" + str(d_v) + "_" + str(d_c) + "_D_" + str(d_max) + "_X_" + str(max_decoding_itr)+".txt"
         acc_file = open(file_name,'a')                        
         acc_file.write("%d \t %f \n" %(e0,decoding_itr_w_Delay[0,itr_error]/float(no_avg_itrs)))
         acc_file.close()
         
-        file_name = "./Results/ITR_N_" + str(N) + "_K_" + str(K) + "_deg_" + str(d_v) + "_" + str(d_c) + "_D_" + str(0) + ".txt"
+        file_name = "./Results/ITR_N_" + str(N) + "_K_" + str(K) + "_deg_" + str(d_v) + "_" + str(d_c) + "_D_" + str(0) + "_X_" + str(max_decoding_itr)+".txt"
         acc_file = open(file_name,'a')                        
         acc_file.write("%d \t %f \n" %(e0,decoding_itr_wo_Delay[0,itr_error]/float(no_avg_itrs)))
         acc_file.close()
         
-        file_name = "./Results/ITR_Sync_N_" + str(N) + "_K_" + str(K) + "_deg_" + str(d_v) + "_" + str(d_c)  + ".txt"
+        file_name = "./Results/ITR_Sync_N_" + str(N) + "_K_" + str(K) + "_deg_" + str(d_v) + "_" + str(d_c)  + "_X_" + str(max_decoding_itr)+".txt"
         acc_file = open(file_name,'a')                        
         acc_file.write("%d \t %f \n" %(e0,decoding_itr_synchronous[0,itr_error]/float(no_avg_itrs)))
         acc_file.close()
                 
-        file_name = "./Results/TIME_N_" + str(N) + "_K_" + str(K) + "_deg_" + str(d_v) + "_" + str(d_c) + "_D_" + str(d_max) + ".txt"
+        file_name = "./Results/TIME_N_" + str(N) + "_K_" + str(K) + "_deg_" + str(d_v) + "_" + str(d_c) + "_D_" + str(d_max) + "_X_" + str(max_decoding_itr)+".txt"
         acc_file = open(file_name,'a')                        
         acc_file.write("%d \t %f \n" %(e0,decoding_time_w_Delay[0,itr_error]/float(no_avg_itrs)))
         acc_file.close()
         
-        file_name = "./Results/TIME_N_" + str(N) + "_K_" + str(K) + "_deg_" + str(d_v) + "_" + str(d_c) + "_D_" + str(0) + ".txt"
+        file_name = "./Results/TIME_N_" + str(N) + "_K_" + str(K) + "_deg_" + str(d_v) + "_" + str(d_c) + "_D_" + str(0) + "_X_" + str(max_decoding_itr)+".txt"
         acc_file = open(file_name,'a')                        
         acc_file.write("%d \t %f \n" %(e0,decoding_time_wo_Delay[0,itr_error]/float(no_avg_itrs)))
         acc_file.close()
         
-        file_name = "./Results/TIME_Sync_N_" + str(N) + "_K_" + str(K) + "_deg_" + str(d_v) + "_" + str(d_c)  + ".txt"
+        file_name = "./Results/TIME_Sync_N_" + str(N) + "_K_" + str(K) + "_deg_" + str(d_v) + "_" + str(d_c) + "_X_" + str(max_decoding_itr)+".txt"
         acc_file = open(file_name,'a')                        
         acc_file.write("%d \t %f \n" %(e0,decoding_time_synchronous[0,itr_error]/float(no_avg_itrs)))
         acc_file.close()
@@ -220,19 +223,19 @@ for ensemble_itr in range(0,ensemble_size):
         
         
         if track_deg_one_flag:
-            file_name = "./Results/DEG_One_N_" + str(N) + "_K_" + str(K) + "_deg_" + str(d_v) + "_" + str(d_c) + "_D_" + str(d_max) + "_e_" + str(e0) + ".txt"
+            file_name = "./Results/DEG_One_N_" + str(N) + "_K_" + str(K) + "_deg_" + str(d_v) + "_" + str(d_c) + "_D_" + str(d_max) + "_e_" + str(e0) + "_X_" + str(max_decoding_itr)+".txt"
             acc_file = open(file_name,'a')                        
             for i in range(0,100):
                 acc_file.write("%d \t %f \n" %(i,deg_one_w_delay_vs_itr[i]/float(no_avg_itrs)))
             acc_file.close()
         
-            file_name = "./Results/DEG_One_N_" + str(N) + "_K_" + str(K) + "_deg_" + str(d_v) + "_" + str(d_c) + "_D_" + str(0) + "_e_" + str(e0) + ".txt"
+            file_name = "./Results/DEG_One_N_" + str(N) + "_K_" + str(K) + "_deg_" + str(d_v) + "_" + str(d_c) + "_D_" + str(0) + "_e_" + str(e0) + "_X_" + str(max_decoding_itr)+".txt"
             acc_file = open(file_name,'a')                        
             for i in range(0,100):
                 acc_file.write("%d \t %f \n" %(i,deg_one_wo_delay_vs_itr[i]/float(no_avg_itrs)))
             acc_file.close()
         
-            file_name = "./Results/DEG_One_Sync_N_" + str(N) + "_K_" + str(K) + "_deg_" + str(d_v) + "_" + str(d_c) + "_e_" + str(e0) + ".txt"    
+            file_name = "./Results/DEG_One_Sync_N_" + str(N) + "_K_" + str(K) + "_deg_" + str(d_v) + "_" + str(d_c) + "_e_" + str(e0) + "_X_" + str(max_decoding_itr)+".txt"
             acc_file = open(file_name,'a')                        
             for i in range(0,100):
                 acc_file.write("%d \t %f \n" %(i,deg_one_sync_vs_itr[i]/float(no_avg_itrs)))

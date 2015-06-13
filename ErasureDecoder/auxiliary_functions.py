@@ -61,13 +61,15 @@ def variable_to_check(v,c,m,E,H,D,t,queue_inds,event_queue):
         
     #.......................Shift Variable Messages............................
     M,N = H.shape    
-    ind = np.nonzero(H[c,:])
+    
     E['v_'+str(v)+'_to_c_'+str(c)] = m
+    
+    ind = np.nonzero(H[c,:])
     ind = list(ind[0])
     ind.remove(v)                  # Remove the variable node from the neighbors
     for j in ind:
         #~~~~~~~~~Update the Outgoing Messages to the Other Neighbors~~~~~~~~~~                
-        temp_ind = ind
+        temp_ind = copy.deepcopy(ind)        
         temp_ind.remove(j)
         if np.isnan(m):
             nan_flag = 1
@@ -77,6 +79,7 @@ def variable_to_check(v,c,m,E,H,D,t,queue_inds,event_queue):
         else:
             messages = [m]      # double check
             nan_flag = 0
+            
             for jj in temp_ind:
                 if np.isnan(E['v_'+str(jj)+'_to_c_'+str(c)]):
                     nan_flag = 1
@@ -112,9 +115,10 @@ def check_to_variable(v,c,m,E,H,D,t,queue_inds,event_queue,var_states):
     
     #.......................Shift Variable Messages............................
     M,N = H.shape    
-    ind = np.nonzero(H[:,v])
+    
     E['c_'+str(c)+'_to_v_'+str(v)] = m
     
+    ind = np.nonzero(H[:,v])
     if (m != -1) and (m != float('nan')):
         var_states[0,v] = m
         
@@ -134,17 +138,24 @@ def check_to_variable(v,c,m,E,H,D,t,queue_inds,event_queue,var_states):
 #------------------------------------------------------------------------------
 
 #--------------Synchrnous Variable-to-Check Message Transmission---------------
-def variable_to_check_sync(E,H):
+def variable_to_check_sync(E,H,varstats):
         
     #.......................Shift Variable Messages............................
     M,N = H.shape    
-    
+        
+    for jj in range(0,N):
+        ind = np.nonzero(H[:,jj])
+        ind = list(ind[0])        
+        for i in ind:
+
+            E['v_'+str(jj)+'_to_c_'+str(i)] = varstats[0,jj]
+     
     for i in range(0,M):
         ind = np.nonzero(H[i,:])
         ind = list(ind[0])
         for j in ind:
             #~~~~~~~~~Update the Outgoing Messages to the Other Neighbors~~~~~~~~~~                
-            temp_ind = ind
+            temp_ind = copy.deepcopy(ind)
             temp_ind.remove(j)
             messages = []
             nan_flag = 0
@@ -167,8 +178,8 @@ def variable_to_check_sync(E,H):
                 else:
                     s = np.mod(sum(messages),2)
             
-                for jj in temp_ind:
-                    E['c_'+str(i)+'_to_v_'+str(j)] = s
+                #for jj in temp_ind:
+                E['c_'+str(i)+'_to_v_'+str(j)] = s
             #~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
             
     return E
@@ -184,7 +195,7 @@ def check_to_variable_sync(E,H,var_states):
         ind = list(ind[0])
         for i in ind:
             #~~~~~~~~~Update the Outgoing Messages to the Other Neighbors~~~~~~~~~~                
-            temp_ind = ind
+            temp_ind = copy.deepcopy(ind)
             temp_ind.remove(i)
             messages = []
             nan_flag = 0
@@ -205,8 +216,8 @@ def check_to_variable_sync(E,H,var_states):
             else:
                 m = -1
         
-            for ii in temp_ind:
-                E['v_'+str(j)+'_to_c_'+str(i)] = m
+            #for ii in temp_ind:
+            E['v_'+str(j)+'_to_c_'+str(i)] = m
         
     
     
@@ -353,9 +364,10 @@ def synchronous_decoder(H,x_init,E,N,K,max_decoding_itr,track_deg_one_flag):
     decoding_itr = 0
     t_flag = 0
     while (decoding_itr < max_decoding_itr):
-            
+        
         #.........................Process the Event............................
-        E = variable_to_check_sync(E,H)
+        
+        E = variable_to_check_sync(E,H,var_states)        
         var_states_old = copy.deepcopy(var_states)
         E,var_states = check_to_variable_sync(E,H,var_states)
         #......................................................................
@@ -380,7 +392,7 @@ def synchronous_decoder(H,x_init,E,N,K,max_decoding_itr,track_deg_one_flag):
         #......................................................................
     
     #--------------------------------------------------------------------------
-    
+    #pdb.set_trace()
     err = sum(abs(var_states[0,:]) > 0)
     t = decoding_itr/float(len(E))
     return err,decoding_itr,t,deg_one_sync_vs_itr
